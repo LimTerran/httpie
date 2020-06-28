@@ -9,24 +9,17 @@ from typing import Iterable, Union
 from urllib.parse import urlparse, urlunparse
 
 import requests
-from requests.adapters import HTTPAdapter
+# noinspection PyPackageRequirements
+import urllib3
 
 from httpie import __version__
-from httpie.cli.constants import SSL_VERSION_ARG_MAPPING
 from httpie.cli.dicts import RequestHeadersDict
-from httpie.plugins import plugin_manager
+from httpie.plugins.registry import plugin_manager
 from httpie.sessions import get_httpie_session
-from httpie.utils import repr_dict
+from httpie.ssl import AVAILABLE_SSL_VERSION_ARG_MAPPING, HTTPieHTTPSAdapter
+from httpie.utils import get_expired_cookies, repr_dict
 
-
-try:
-    # noinspection PyPackageRequirements
-    import urllib3
-    # <https://urllib3.readthedocs.io/en/latest/security.html>
-    urllib3.disable_warnings()
-except (ImportError, AttributeError):
-    pass
-
+urllib3.disable_warnings()
 
 FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded; charset=utf-8'
 JSON_CONTENT_TYPE = 'application/json'
@@ -57,6 +50,8 @@ def collect_messages(
     send_kwargs_mergeable_from_env = make_send_kwargs_mergeable_from_env(args)
     requests_session = build_requests_session(
         ssl_version=args.ssl_version,
+        ciphers=args.ciphers,
+        verify=bool(send_kwargs_mergeable_from_env['verify'])
     )
 
     if httpie_session:
@@ -86,6 +81,7 @@ def collect_messages(
     if args.compress and prepared_request.body:
         compress_body(prepared_request, always=args.compress > 1)
     response_count = 0
+    expired_cookies = []
     while prepared_request:
         yield prepared_request
         if not args.offline:
@@ -99,6 +95,12 @@ def collect_messages(
                     **send_kwargs_merged,
                     **send_kwargs,
                 )
+
+            # noinspection PyProtectedMember
+            expired_cookies += get_expired_cookies(
+                headers=response.raw._original_response.msg._headers
+            )
+
             response_count += 1
             if response.next:
                 if args.max_redirects and response_count == args.max_redirects:
@@ -114,6 +116,10 @@ def collect_messages(
     if httpie_session:
         if httpie_session.is_new() or not args.session_read_only:
             httpie_session.cookies = requests_session.cookies
+            httpie_session.remove_cookies(
+                # TODO: take path & domain into account?
+                cookie['name'] for cookie in expired_cookies
+            )
             httpie_session.save()
 
 
@@ -121,6 +127,7 @@ def collect_messages(
 @contextmanager
 def max_headers(limit):
     # <https://github.com/jakubroztocil/httpie/issues/802>
+    # noinspection PyUnresolvedReferences
     orig = http.client._MAXHEADERS
     http.client._MAXHEADERS = limit or float('Inf')
     try:
@@ -145,29 +152,23 @@ def compress_body(request: requests.PreparedRequest, always: bool):
         request.headers['Content-Length'] = str(len(deflated_data))
 
 
-class HTTPieHTTPSAdapter(HTTPAdapter):
-
-    def __init__(self, ssl_version=None, **kwargs):
-        self._ssl_version = ssl_version
-        super().__init__(**kwargs)
-
-    def init_poolmanager(self, *args, **kwargs):
-        kwargs['ssl_version'] = self._ssl_version
-        super().init_poolmanager(*args, **kwargs)
-
-
 def build_requests_session(
+    verify: bool,
     ssl_version: str = None,
+    ciphers: str = None,
 ) -> requests.Session:
     requests_session = requests.Session()
 
     # Install our adapter.
-    requests_session.mount('https://', HTTPieHTTPSAdapter(
+    https_adapter = HTTPieHTTPSAdapter(
+        ciphers=ciphers,
+        verify=verify,
         ssl_version=(
-            SSL_VERSION_ARG_MAPPING[ssl_version]
+            AVAILABLE_SSL_VERSION_ARG_MAPPING[ssl_version]
             if ssl_version else None
-        )
-    ))
+        ),
+    )
+    requests_session.mount('https://', https_adapter)
 
     # Install adapters from plugins.
     for plugin_cls in plugin_manager.get_transport_plugins():

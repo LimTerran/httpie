@@ -11,7 +11,7 @@ generally interacting with HTTP servers.
 
 .. class:: no-web no-pdf
 
-    |pypi| |build| |coverage| |downloads| |gitter|
+    |docs| |pypi| |build| |coverage| |downloads| |gitter|
 
 
 .. class:: no-web no-pdf
@@ -106,6 +106,11 @@ system package manager, for example:
 
     # CentOS, RHEL, ...
     $ yum install httpie
+
+.. code-block:: bash
+
+    # Gentoo
+    $ emerge httpie
 
 .. code-block:: bash
 
@@ -305,8 +310,23 @@ Request URL
 ===========
 
 The only information HTTPie needs to perform a request is a URL.
-The default scheme is, somewhat unsurprisingly, ``http://``,
-and can be omitted from the argument – ``http example.org`` works just fine.
+
+The default scheme is ``http://`` and can be omitted from the argument:
+
+.. code-block:: bash
+
+    $ http example.org
+    # => http://example.org
+
+
+HTTPie also installs an ``https`` executable, where the default
+scheme is ``https://``:
+
+
+.. code-block:: bash
+
+    $ https example.org
+    # => https://example.org
 
 
 Querystring parameters
@@ -515,7 +535,6 @@ Simple example:
     $ http PUT httpbin.org/put name=John email=john@example.org
 
 .. code-block:: http
-
     PUT / HTTP/1.1
     Accept: application/json, */*;q=0.5
     Accept-Encoding: gzip, deflate
@@ -667,6 +686,13 @@ submitted:
 
 Note that ``@`` is used to simulate a file upload form field, whereas
 ``=@`` just embeds the file content as a regular text field value.
+
+When uploading files, their content type is inferred from the file name. You can manually
+override the inferred content type:
+
+.. code-block:: bash
+
+   $ http -f POST httpbin.org/post name='John Smith' cv@'~/files/data.bin;type=application/pdf'
 
 
 HTTP headers
@@ -1029,15 +1055,6 @@ In your ``~/.bash_profile``:
 SOCKS
 -----
 
-Homebrew-installed HTTPie comes with SOCKS proxy support out of the box.
-To enable SOCKS proxy support for non-Homebrew  installations, you’ll
-might need to install ``requests[socks]`` manually using ``pip``:
-
-
-.. code-block:: bash
-
-    $ pip install -U requests[socks]
-
 Usage is the same as for other types of `proxies`_:
 
 .. code-block:: bash
@@ -1092,16 +1109,38 @@ path of the key file with ``--cert-key``:
 SSL version
 -----------
 
-Use the ``--ssl=<PROTOCOL>`` to specify the desired protocol version to use.
-This will default to SSL v2.3 which will negotiate the highest protocol that both
-the server and your installation of OpenSSL support. The available protocols
-are ``ssl2.3``, ``ssl3``, ``tls1``, ``tls1.1``, ``tls1.2``, ``tls1.3``. (The actually
-available set of protocols may vary depending on your OpenSSL installation.)
+Use the ``--ssl=<PROTOCOL>`` option to specify the desired protocol version to
+use. This will default to SSL v2.3 which will negotiate the highest protocol
+that both the server and your installation of OpenSSL support. The available
+protocols are
+``ssl2.3``, ``ssl3``, ``tls1``, ``tls1.1``, ``tls1.2``, ``tls1.3``.
+(The actually available set of protocols may vary depending on your OpenSSL
+installation.)
 
 .. code-block:: bash
 
     # Specify the vulnerable SSL v3 protocol to talk to an outdated server:
     $ http --ssl=ssl3 https://vulnerable.example.org
+
+
+
+SSL ciphers
+-----------
+
+You can specify the available ciphers with ``--ciphers``.
+It should be a string in the
+`OpenSSL cipher list format <https://www.openssl.org/docs/man1.1.0/man1/ciphers.html>`_.
+
+.. code-block:: bash
+
+    $ http --ciphers=ECDHE-RSA-AES128-GCM-SHA256  https://httpbin.org/get
+
+Note: these cipher strings do not change the negotiated version of SSL or TLS,
+they only affect the list of available cipher suites.
+
+To see the default cipher string, run ``http --help`` and see
+the ``--ciphers`` section under SSL.
+
 
 
 Output options
@@ -1357,6 +1396,26 @@ One of these options can be used to control output processing:
 ``--pretty=none``      Disables output processing.
                        Default for redirected output.
 ====================   ========================================================
+
+
+You can control the applied formatting via the ``--format-options`` option.
+The following options are available:
+
+For example, this is how you would disable the default header and JSON key
+sorting, and specify a custom JSON indent size:
+
+
+.. code-block:: bash
+
+    $ http --format-options headers.sort:false,json.sort_keys:false,json.indent:2 httpbin.org/get
+
+This is something you will typically store as one of the default options in your
+`config`_ file. See ``http --help`` for all the available formatting options.
+
+There are also two shortcuts that allow you to quickly disable and re-enable
+sorting-related format options (currently it means JSON keys and headers):
+``--unsorted`` and ``--sorted``.
+
 
 Binary data
 -----------
@@ -1621,9 +1680,9 @@ To create or reuse a different session, simple specify a different name:
 
     $ http --session=user2 -a user2:password httpbin.org/get X-Bar:Foo
 
-Named sessions’s data is stored in JSON files in the the ``sessions``
-subdirectory of the `config`_ directory:
-``~/.httpie/sessions/<host>/<name>.json``
+Named sessions’s data is stored in JSON files inside the ``sessions``
+subdirectory of the `config`_ directory, typically:
+``~/.config/httpie/sessions/<host>/<name>.json``
 (``%APPDATA%\httpie\sessions\<host>\<name>.json`` on Windows).
 
 If you have executed the above commands on a unix machine,
@@ -1632,7 +1691,7 @@ you should be able list the generated sessions files using:
 
 .. code-block:: bash
 
-    $ ls -l ~/.httpie/sessions/httpbin.org
+    $ ls -l ~/.config/httpie/sessions/httpbin.org
 
 
 Anonymous sessions
@@ -1655,7 +1714,7 @@ allows for sessions to be re-used across multiple hosts:
 .. code-block:: bash
 
     # You can also refer to a previously created named session:
-    $ http --session=~/.httpie/sessions/another.example.org/test.json example.org
+    $ http --session=~/.config/httpie/sessions/another.example.org/test.json example.org
 
 
 When creating anonymous sessions, please remember to always include at least
@@ -1681,6 +1740,60 @@ exchange after it has been created, specify the session name via
     # But it is not updated:
     $ http --session-read-only=./ro-session.json httpbin.org/headers Custom-Header:new-value
 
+Cookie Storage Behaviour
+------------------------
+
+**TL;DR:** Cookie storage priority: Server response > Command line request > Session file
+
+To set a cookie within a Session there are three options:
+
+1. Get a ``Set-Cookie`` header in a response from a server
+
+.. code-block:: bash
+
+    $ http --session=./session.json httpbin.org/cookie/set?foo=bar
+
+2. Set the cookie name and value through the command line as seen in `cookies`_
+
+.. code-block:: bash
+
+    $ http --session=./session.json httpbin.org/headers Cookie:foo=bar
+
+3. Manually set cookie parameters in the json file of the session
+
+.. code-block:: json
+
+    {
+        "__meta__": {
+        "about": "HTTPie session file",
+        "help": "https://httpie.org/doc#sessions",
+        "httpie": "2.2.0-dev"
+        },
+        "auth": {
+            "password": null,
+            "type": null,
+            "username": null
+        },
+        "cookies": {
+            "foo": {
+                "expires": null,
+                "path": "/",
+                "secure": false,
+                "value": "bar"
+                }
+        }
+    }
+
+Cookies will be set in the session file with the priority specified above. For example, a cookie
+set through the command line will overwrite a cookie of the same name stored
+in the session file. If the server returns a ``Set-Cookie`` header with a
+cookie of the same name, the returned cookie will overwrite the preexisting cookie.
+
+Expired cookies are never stored. If a cookie in a session file expires, it will be removed before
+sending a new request. If the server expires an existing cookie, it will also be removed from the
+session file.
+
+
 Config
 ======
 
@@ -1691,8 +1804,17 @@ but you can create it manually.
 Config file directory
 ---------------------
 
-The default location of the configuration file is ``~/.httpie/config.json``
-(or ``%APPDATA%\httpie\config.json`` on Windows).
+To see the exact location for your installation, run ``http --debug`` and
+look for ``config_dir`` in the output.
+
+The default location of the configuration file on most platforms is
+``$XDG_CONFIG_HOME/httpie/config.json`` (defaulting to
+``~/.config/httpie/config.json``).
+
+For backwards compatibility, if the directory ``~/.httpie`` exists,
+the configuration file there will be used instead.
+
+On Windows, the config file is located at ``%APPDATA%\httpie\config.json``.
 
 The config directory can be changed by setting the ``$HTTPIE_CONFIG_DIR``
 environment variable:
@@ -1702,7 +1824,6 @@ environment variable:
     $ export HTTPIE_CONFIG_DIR=/tmp/httpie
     $ http httpbin.org/get
 
-To view the exact location run ``http --debug``.
 
 
 Configurable options
@@ -1722,7 +1843,7 @@ For instance, you can use this config option to change your default color theme:
 
 .. code-block:: bash
 
-    $ cat ~/.httpie/config.json
+    $ cat ~/.config/httpie/config.json
 
 
 .. code-block:: json
@@ -1938,6 +2059,10 @@ have contributed.
 .. _Jakub Roztocil: https://roztocil.co
 .. _@jakubroztocil: https://twitter.com/jakubroztocil
 
+
+.. |docs| image:: https://img.shields.io/badge/stable%20docs-httpie.org%2Fdocs-brightgreen?style=flat-square
+    :target: https://httpie.org/docs
+    :alt: Stable documentation
 
 .. |pypi| image:: https://img.shields.io/pypi/v/httpie.svg?style=flat-square&label=latest%20stable%20version
     :target: https://pypi.python.org/pypi/httpie

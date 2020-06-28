@@ -6,19 +6,37 @@ This document records all notable changes to `HTTPie <https://httpie.org>`_.
 This project adheres to `Semantic Versioning <https://semver.org/>`_.
 
 
-`2.2.0-dev`_ (unreleased)
+`2.3.0-dev`_ (unreleased)
 -------------------------
+* Added support for combining cookies specified on the CLI and in a session file (`#932`_).
+* Added out of the box SOCKS support with no extra installation (`#904`_).
+* Removed Tox testing entirely (`#943`_).
+
+
+`2.2.0`_ (2020-06-18)
+-------------------------
+
+* Added support for custom content types for uploaded files (`#668`_).
+* Added support for ``$XDG_CONFIG_HOME`` (`#920`_).
+* Added support for ``Set-Cookie``-triggered cookie expiration (`#853`_).
+* Added ``--format-options`` to allow disabling sorting, etc. (`#128`_)
+* Added ``--sorted`` and ``--unsorted`` shortcuts for (un)setting all sorting-related ``--format-options``. (`#128`_)
+* Added ``--ciphers`` to allow configuring OpenSSL ciphers (`#870`_).
+* Added ``netrc`` support for auth plugins. Enabled for ``--auth-type=basic``
+  and ``digest``, 3rd parties may opt in (`#718`_, `#719`_, `#852`_, `#934`_).
+* Fixed built-in plugins-related circular imports (`#925`_).
+
 
 `2.1.0`_ (2020-04-18)
 ---------------------
 
 * Added ``--path-as-is`` to bypass dot segment (``/../`` or ``/./``)
-  URL squashing (#895).
+  URL squashing (`#895`_).
 * Changed the default ``Accept`` header value for JSON requests from
   ``application/json, */*`` to ``application/json, */*;q=0.5``
-  to clearly indicate preference (#488).
+  to clearly indicate preference (`#488`_).
 * Fixed ``--form`` file upload mixed with redirected ``stdin`` error handling
-  (#840).
+  (`#840`_).
 
 
 `2.0.0`_ (2020-01-12)
@@ -425,9 +443,23 @@ This project adheres to `Semantic Versioning <https://semver.org/>`_.
 .. _1.0.3: https://github.com/jakubroztocil/httpie/compare/1.0.2...1.0.3
 .. _2.0.0: https://github.com/jakubroztocil/httpie/compare/1.0.3...2.0.0
 .. _2.1.0: https://github.com/jakubroztocil/httpie/compare/2.0.0...2.1.0
-.. _2.2.0-dev: https://github.com/jakubroztocil/httpie/compare/2.1.0...master
+.. _2.2.0: https://github.com/jakubroztocil/httpie/compare/2.1.0...2.2.0
+.. _2.3.0-dev: https://github.com/jakubroztocil/httpie/compare/2.2.0...master
 
 
-.. _#488:https://github.com/jakubroztocil/httpie/issues/488
-.. _#840:https://github.com/jakubroztocil/httpie/issues/840
-.. _#895:https://github.com/jakubroztocil/httpie/issues/895
+.. _#128: https://github.com/jakubroztocil/httpie/issues/128
+.. _#488: https://github.com/jakubroztocil/httpie/issues/488
+.. _#668: https://github.com/jakubroztocil/httpie/issues/668
+.. _#718: https://github.com/jakubroztocil/httpie/issues/718
+.. _#719: https://github.com/jakubroztocil/httpie/issues/719
+.. _#840: https://github.com/jakubroztocil/httpie/issues/840
+.. _#853: https://github.com/jakubroztocil/httpie/issues/853
+.. _#852: https://github.com/jakubroztocil/httpie/issues/852
+.. _#870: https://github.com/jakubroztocil/httpie/issues/870
+.. _#895: https://github.com/jakubroztocil/httpie/issues/895
+.. _#920: https://github.com/jakubroztocil/httpie/issues/920
+.. _#904: https://github.com/jakubroztocil/httpie/issues/904
+.. _#925: https://github.com/jakubroztocil/httpie/issues/925
+.. _#932: https://github.com/jakubroztocil/httpie/issues/932
+.. _#934: https://github.com/jakubroztocil/httpie/issues/934
+.. _#943: https://github.com/jakubroztocil/httpie/issues/943

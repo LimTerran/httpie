@@ -1,14 +1,17 @@
 # coding=utf-8
+import json
 import os
 import shutil
-import sys
+from datetime import datetime
 from tempfile import gettempdir
 
 import pytest
 
-from httpie.plugins.builtin import HTTPBasicAuth
-from utils import MockEnvironment, mk_config_dir, http, HTTP_OK
 from fixtures import UNICODE
+from httpie.plugins.builtin import HTTPBasicAuth
+from httpie.sessions import Session
+from httpie.utils import get_expired_cookies
+from utils import MockEnvironment, mk_config_dir, http, HTTP_OK
 
 
 class SessionTestBase:
@@ -30,6 +33,27 @@ class SessionTestBase:
 
         """
         return MockEnvironment(config_dir=self.config_dir)
+
+
+class CookieTestBase:
+    def setup_method(self, method):
+        self.config_dir = mk_config_dir()
+
+        orig_session = {
+            'cookies': {
+                'cookie1': {
+                    'value': 'foo',
+                },
+                'cookie2': {
+                    'value': 'foo',
+                }
+            }
+        }
+        self.session_path = self.config_dir / 'test-session.json'
+        self.session_path.write_text(json.dumps(orig_session))
+
+    def teardown_method(self, method):
+        shutil.rmtree(self.config_dir)
 
 
 class TestSessionFlow(SessionTestBase):
@@ -186,3 +210,159 @@ class TestSession(SessionTestBase):
                  httpbin.url + '/get', env=self.env())
         finally:
             os.chdir(cwd)
+
+
+class TestExpiredCookies(CookieTestBase):
+
+    @pytest.mark.parametrize(
+        argnames=['initial_cookie', 'expired_cookie'],
+        argvalues=[
+            ({'id': {'value': 123}}, 'id'),
+            ({'id': {'value': 123}}, 'token')
+        ]
+    )
+    def test_removes_expired_cookies_from_session_obj(self, initial_cookie, expired_cookie, httpbin):
+        session = Session(self.config_dir)
+        session['cookies'] = initial_cookie
+        session.remove_cookies([expired_cookie])
+        assert expired_cookie not in session.cookies
+
+    def test_expired_cookies(self, httpbin):
+        r = http(
+            '--session', str(self.session_path),
+            '--print=H',
+            httpbin.url + '/cookies/delete?cookie2',
+        )
+        assert 'Cookie: cookie1=foo; cookie2=foo' in r
+
+        updated_session = json.loads(self.session_path.read_text())
+        assert 'cookie1' in updated_session['cookies']
+        assert 'cookie2' not in updated_session['cookies']
+
+    @pytest.mark.parametrize(
+        argnames=['headers', 'now', 'expected_expired'],
+        argvalues=[
+            (
+                [
+                    ('Set-Cookie', 'hello=world; Path=/; Expires=Thu, 01-Jan-1970 00:00:00 GMT; HttpOnly'),
+                    ('Connection', 'keep-alive')
+                ],
+                None,
+                [
+                    {
+                        'name': 'hello',
+                        'path': '/'
+                    }
+                ]
+            ),
+            (
+                [
+                    ('Set-Cookie', 'hello=world; Path=/; Expires=Thu, 01-Jan-1970 00:00:00 GMT; HttpOnly'),
+                    ('Set-Cookie', 'pea=pod; Path=/ab; Expires=Thu, 01-Jan-1970 00:00:00 GMT; HttpOnly'),
+                    ('Connection', 'keep-alive')
+                ],
+                None,
+                [
+                    {'name': 'hello', 'path': '/'},
+                    {'name': 'pea', 'path': '/ab'}
+                ]
+            ),
+            (
+                [
+                    ('Set-Cookie', 'hello=world; Path=/; Expires=Fri, 12 Jun 2020 12:28:55 GMT; HttpOnly'),
+                    ('Connection', 'keep-alive')
+                ],
+                datetime(2020, 6, 11).timestamp(),
+                []
+            )
+        ]
+    )
+    def test_get_expired_cookies_manages_multiple_cookie_headers(self, headers, now, expected_expired):
+        assert get_expired_cookies(headers, now=now) == expected_expired
+
+
+class TestCookieStorage(CookieTestBase):
+
+    @pytest.mark.parametrize(
+        argnames=['new_cookies', 'new_cookies_dict', 'expected'],
+        argvalues=[(
+            'new=bar',
+            {'new': 'bar'},
+            'cookie1=foo; cookie2=foo; new=bar'
+        ),
+            (
+            'new=bar;chocolate=milk',
+            {'new': 'bar', 'chocolate': 'milk'},
+            'chocolate=milk; cookie1=foo; cookie2=foo; new=bar'
+        ),
+            (
+            'new=bar; chocolate=milk',
+            {'new': 'bar', 'chocolate': 'milk'},
+            'chocolate=milk; cookie1=foo; cookie2=foo; new=bar'
+        ),
+            (
+            'new=bar;; chocolate=milk;;;',
+            {'new': 'bar', 'chocolate': 'milk'},
+            'cookie1=foo; cookie2=foo; new=bar'
+        ),
+            (
+            'new=bar; chocolate=milk;;;',
+            {'new': 'bar', 'chocolate': 'milk'},
+            'chocolate=milk; cookie1=foo; cookie2=foo; new=bar'
+        )
+        ]
+    )
+    def test_existing_and_new_cookies_sent_in_request(self, new_cookies, new_cookies_dict, expected, httpbin):
+        r = http(
+            '--session', str(self.session_path),
+            '--print=H',
+            httpbin.url,
+            'Cookie:' + new_cookies,
+        )
+        # Note: cookies in response are in alphabetical order
+        assert 'Cookie: ' + expected in r
+
+        updated_session = json.loads(self.session_path.read_text())
+        for name, value in new_cookies_dict.items():
+            assert name, value in updated_session['cookies']
+            assert 'Cookie' not in updated_session['headers']
+
+    @pytest.mark.parametrize(
+        argnames=['cli_cookie', 'set_cookie', 'expected'],
+        argvalues=[(
+            '',
+            '/cookies/set/cookie1/bar',
+            'bar'
+        ),
+            (
+            'cookie1=not_foo',
+            '/cookies/set/cookie1/bar',
+            'bar'
+        ),
+            (
+            'cookie1=not_foo',
+            '',
+            'not_foo'
+        ),
+            (
+            '',
+            '',
+            'foo'
+        )
+        ]
+    )
+    def test_cookie_storage_priority(self, cli_cookie, set_cookie, expected, httpbin):
+        """
+        Expected order of priority for cookie storage in session file:
+        1. set-cookie (from server)
+        2. command line arg
+        3. cookie already stored in session file
+        """
+        r = http(
+            '--session', str(self.session_path),
+            httpbin.url + set_cookie,
+            'Cookie:' + cli_cookie,
+        )
+        updated_session = json.loads(self.session_path.read_text())
+
+        assert updated_session['cookies']['cookie1']['value'] == expected
